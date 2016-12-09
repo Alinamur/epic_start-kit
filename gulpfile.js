@@ -29,6 +29,8 @@ const svgmin = require('gulp-svgmin');
 const base64 = require('gulp-base64');
 const notify = require('gulp-notify');
 const plumber = require('gulp-plumber');
+const cleanCSS = require('gulp-cleancss');
+const pug = require('gulp-pug');
 
 // ЗАДАЧА: Компиляция препроцессора
 gulp.task('less', function(){
@@ -43,6 +45,9 @@ gulp.task('less', function(){
     ]))
     .pipe(sourcemaps.write('/'))                            // записываем карту кода как отдельный файл (путь из константы)
     .pipe(gulp.dest(dirs.build + '/css/'))                  // записываем CSS-файл (путь из константы)
+    .pipe(rename('style.min.css'))                          // переименовываем
+    .pipe(cleanCSS())                                       // сжимаем
+    .pipe(gulp.dest(dirs.build + '/css/'))                  // записываем CSS-файл (путь из константы)
     .pipe(browserSync.stream());                            // обновляем в браузере
 });
 
@@ -56,6 +61,13 @@ gulp.task('html', function() {
       indent: true,
     }))
     .pipe(replace(/\n\s*<!--DEV[\s\S]+?-->/gm, ''))         // убираем комментарии <!--DEV ... -->
+    .pipe(gulp.dest(dirs.build));                           // записываем файлы (путь из константы)
+});
+
+gulp.task('pug', function() {
+  return gulp.src(dirs.source + '/**/*.pug')                  // какие файлы обрабатывать (путь из константы, маска имени)
+    .pipe(plumber({ errorHandler: onError }))
+    .pipe(pug())         // убираем комментарии <!--DEV ... -->
     .pipe(gulp.dest(dirs.build));                           // записываем файлы (путь из константы)
 });
 
@@ -91,7 +103,7 @@ gulp.task('svgstore', function (callback) {
   let spritePath = dirs.source + '/img/svg-sprite';          // константа с путем к исходникам SVG-спрайта
   if(fileExist(spritePath) !== false) {
     return gulp.src(spritePath + '/*.svg')                   // берем только SVG файлы из этой папки, подпапки игнорируем
-      .pipe(plumber({ errorHandler: onError }))
+      // .pipe(plumber({ errorHandler: onError }))
       .pipe(svgmin(function (file) {
         return {
           plugins: [{
@@ -106,7 +118,7 @@ gulp.task('svgstore', function (callback) {
         $('svg').attr('style',  'display:none');             // дописываем получающемуся SVG-спрайту инлайновое сокрытие
       }))
       .pipe(rename('sprite-svg.svg'))
-      .pipe(gulp.dest(dirs.build + '/img'));
+      .pipe(gulp.dest(dirs.source + '/img'));
   }
   else {
     console.log('Нет файлов для сборки SVG-спрайта');
@@ -185,7 +197,9 @@ gulp.task('css:fonts:woff2', function (callback) {
 // ЗАДАЧА: Сборка всего
 gulp.task('build', gulp.series(                             // последовательно:
   'clean',                                                  // последовательно: очистку папки сборки
-  gulp.parallel('less', 'img', 'js', 'svgstore', 'css:fonts:woff', 'css:fonts:woff2'),
+  'svgstore',
+  gulp.parallel('less', 'img', 'js', 'css:fonts:woff', 'css:fonts:woff2'),
+  'pug',
   'html'                                                    // последовательно: сборку разметки
 ));
 
@@ -195,7 +209,7 @@ gulp.task('serve', gulp.series('build', function() {
   browserSync.init({                                        // запускаем локальный сервер (показ, автообновление, синхронизацию)
     server: dirs.build,                                     // папка, которая будет «корнем» сервера (путь из константы)
     port: 3000,                                             // порт, на котором будет работать сервер
-    startPath: 'index.html',                                // файл, который буде открываться в браузере при старте сервера
+    startPath: '/pug/index.html',                                // файл, который буде открываться в браузере при старте сервера
     // open: false                                          // возможно, каждый раз стартовать сервер не нужно...
   });
 
@@ -206,10 +220,14 @@ gulp.task('serve', gulp.series('build', function() {
     ],
     gulp.series('html', reloader)                           // при изменении файлов запускаем пересборку HTML и обновление в браузере
   );
+ gulp.watch(                                               // следим за HTML
+      dirs.source + '/*.html',                              // в папке с исходникамb 
+    gulp.series('html', reloader)                           // при изменении файлов запускаем пересборку HTML и обновление в браузере
+  );
 
   gulp.watch(                                               // следим за LESS
-    dirs.source + '/less/**/*.less',
-    gulp.series('less')                                     // при изменении запускаем компиляцию (обновление браузера — в задаче компиляции)
+    dirs.source + '/pug/**/*.pug',
+    gulp.series('pug', reloader)                                     // при изменении запускаем компиляцию (обновление браузера — в задаче компиляции)
   );
 
   gulp.watch(                                               // следим за изображениями
@@ -221,6 +239,12 @@ gulp.task('serve', gulp.series('build', function() {
     dirs.source + '/js/*.js',
     gulp.series('js', reloader)                            // при изменении пересобираем и обновляем в браузере
   );
+
+  gulp.watch(                                               // следим за изображениями
+    dirs.source + '/img/svg-sprite/*.{svg}',
+    gulp.series('svgstore', 'pug', 'html', reloader)                            // при изменении оптимизируем, копируем и обновляем в браузере
+  );
+
 
 }));
 
